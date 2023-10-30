@@ -143,7 +143,7 @@ class ExactQuadratic():
         if kernel_choice not in KERNEL_NAME_TO_CLASS:
             raise ValueError("An unrecognized kernel choice was supplied.")
         kernel = KERNEL_NAME_TO_CLASS[kernel_choice](input_dims,
-                            random_seed, self.device, self.num_threads,
+                            self.device, self.num_threads,
                             kernel_spec_parms = self.kernel_spec_parms)
         if bounds is not None:
             kernel.set_bounds(bounds)

@@ -11,7 +11,7 @@ cimport numpy as np
 cimport cython
 from cython cimport floating
 from libc cimport stdint
-from libc.stdint cimport int8_t, int32_t
+from libc.stdint cimport int8_t, int32_t, uintptr_t
 import math
 
 

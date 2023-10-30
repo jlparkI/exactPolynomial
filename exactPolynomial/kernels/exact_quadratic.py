@@ -17,8 +17,8 @@ class ExactQuadratic(KernelBaseclass):
     polynomial regression.
 
     Attributes:
-        hyperparams (np.ndarray): This kernel has two
-            hyperparameters: lambda_ (noise), beta_ (amplitude).
+        hyperparams (np.ndarray): This kernel has one
+            hyperparameter: lambda_ (noise).
         poly_func: A reference to the Cython-wrapped C function
             that will be used for feature generation.
     """
@@ -44,8 +44,8 @@ class ExactQuadratic(KernelBaseclass):
         super().__init__(actual_num_feats, xdim, num_threads,
                 kernel_spec_parms = kernel_spec_parms)
 
-        self.hyperparams = np.ones((2))
-        self.bounds = np.asarray([[1e-3,1e1], [0.1, 10]])
+        self.hyperparams = np.ones((1))
+        self.bounds = np.asarray([[1e-3,1e1]])
 
         self.poly_func = None
         self.device = device
@@ -72,17 +72,16 @@ class ExactQuadratic(KernelBaseclass):
         Returns:
             output_x: A cupy or numpy array depending on self.device
                 containing the results of random feature generation. Note
-                that num_freqs rffs are generated, not num_rffs.
+                that num_feats rffs are generated, not num_feats.
         """
         if len(input_x.shape) != 2:
             raise ValueError("Input to ClassicPoly must be a 2d array.")
         retyped_input = input_x.astype(self.dtype)
-        output_x = self.zero_arr((input_x.shape[0], self.num_rffs),
+        output_x = self.zero_arr((input_x.shape[0], self.num_feats),
                 self.out_type)
         output_x[:,-1] = 1
 
         self.poly_func(retyped_input, output_x, self.num_threads)
-        output_x *= self.hyperparams[1]
         return output_x
 
 
@@ -91,13 +90,3 @@ class ExactQuadratic(KernelBaseclass):
         kernel has no kernel-specific properties that must
         be reset after hyperparameters are changed."""
         return
-
-
-    def kernel_specific_gradient(self, input_x):
-        """Since all kernels share the beta and lambda hyperparameters,
-        the gradient for these can be calculated by the parent class.
-        This kernel has no kernel-specific hyperparameters and hence
-        can return a shape[1] == 0 array for gradient.
-        """
-        xtrans = self.transform_x(input_x)
-        return xtrans, np.zeros((xtrans.shape[0], 0, 0))

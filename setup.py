@@ -130,8 +130,7 @@ def main():
     fht_cuda_ext, gpu_fht_files = \
             setup_cuda_fast_hadamard_extensions(setup_fpath, CUDA_PATH, NO_CUDA)
 
-    ext_modules += fht_cuda_ext
-    ext_modules += cpu_fht_ext
+    ext_modules = cpu_fht_ext + fht_cuda_ext
 
 
     if len(fht_cuda_ext) == 0:

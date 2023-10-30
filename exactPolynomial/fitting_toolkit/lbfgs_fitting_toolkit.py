@@ -7,8 +7,6 @@ except:
     pass
 from scipy.optimize import minimize
 
-from ..scoring_toolkit.exact_nmll_calcs import calc_zty
-
 
 
 class lBFGSModelFit:
@@ -30,7 +28,7 @@ class lBFGSModelFit:
         zero_arr: A convenience reference to either cp.zeros or np.zeros.
         dtype: A convenience reference to either cp.float64 or np.float64,
             depending on device.
-        absval: A convenience reference to either cp.abs or np.abs.
+        signval: A convenience reference to either cp.sign or np.sign.
         niter (int): The number of function evaluations performed.
     """
 
@@ -59,11 +57,11 @@ class lBFGSModelFit:
         if device == "gpu":
             self.zero_arr = cp.zeros
             self.dtype = cp.float64
-            self.absval = cp.abs
+            self.signval = cp.sign
         else:
             self.zero_arr = np.zeros
             self.dtype = np.float64
-            self.absval = np.abs
+            self.signval = np.sign
         self.n_iter = 0
 
     def fit_model_lbfgs(self, max_iter = 500, tol = 3e-09):
@@ -79,10 +77,10 @@ class lBFGSModelFit:
 
         Returns:
             wvec: A cupy or numpy array depending on device that contains the
-                best set of weights found. A 1d array of length self.kernel.get_num_rffs().
+                best set of weights found. A 1d array of length self.kernel.get_num_feats().
         """
         z_trans_y, _ = calc_zty(self.dataset, self.kernel)
-        init_weights = np.zeros((self.kernel.get_num_rffs()))
+        init_weights = np.zeros((self.kernel.get_num_feats()))
         res = minimize(self.cost_fun, options={"maxiter":max_iter, "ftol":tol},
                     method = "L-BFGS-B",
                     x0 = init_weights, args = (z_trans_y,),
@@ -114,7 +112,7 @@ class lBFGSModelFit:
         if self.regularization == "l1":
             xprod = self.lambda_**2 * wvec
         else:
-            xprod = self.lambda_ * self.absval(wvec)
+            xprod = self.signval(wvec).astype(self.dtype)
 
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
@@ -122,8 +120,7 @@ class lBFGSModelFit:
 
 
         grad = xprod - z_trans_y
-        loss = 0.5 * (wvec.T @ xprod) - z_trans_y.T @ wvec
-
+        loss = (grad * grad).sum()
 
         if self.device == "gpu":
             grad = cp.asnumpy(grad).astype(np.float64)
@@ -132,3 +129,32 @@ class lBFGSModelFit:
                 print(f"Nfev {self.n_iter} complete")
         self.n_iter += 1
         return float(loss), grad
+
+
+def calc_zty(dataset, kernel):
+    """Calculates the vector Z^T y.
+
+    Args:
+        dataset: An Dataset object that can supply
+            chunked data.
+        kernel: A valid kernel object that can generate
+            random features.
+        device (str): One of "cpu", "gpu".
+
+    Returns:
+        z_trans_y (array): A shape (num_feats)
+            array that contains Z^T y.
+        y_trans_y (float): The value y^T y.
+    """
+    if kernel.device == "gpu":
+        z_trans_y = cp.zeros((kernel.get_num_feats()))
+    else:
+        z_trans_y = np.zeros((kernel.get_num_feats()))
+
+    y_trans_y = 0
+
+    for xdata, ydata in dataset.get_chunked_data():
+        zdata = kernel.transform_x(xdata)
+        z_trans_y += zdata.T @ ydata
+        y_trans_y += float( (ydata**2).sum() )
+    return z_trans_y, y_trans_y
