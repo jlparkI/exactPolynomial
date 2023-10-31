@@ -31,7 +31,7 @@ def test_fit(device = "gpu"):
     test_dataset, _ = build_test_dataset(xsuffix = "testxvalues.npy",
             ysuffix = "testyvalues.npy")
 
-    hparams = np.array([-1.375])
+    hparams = np.array([-3])#np.array([-1.375])
 
 
     model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 500,

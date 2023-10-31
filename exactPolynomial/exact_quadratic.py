@@ -10,6 +10,7 @@ import numpy as np
 from .kernels import KERNEL_NAME_TO_CLASS
 
 from .fitting_toolkit.lbfgs_fitting_toolkit import lBFGSModelFit
+#from .fitting_toolkit.lsr1_fitting_toolkit import lSR1
 
 
 
@@ -259,7 +260,11 @@ class ExactQuadratic():
         if mode == "lbfgs":
             model_fitter = lBFGSModelFit(dataset, regularization, self.kernel,
                     self.device, self.verbose)
-            self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter, tol)
+            self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter)
+        #elif mode == "lsr1":
+        #    model_fitter = lSR1(dataset, regularization, self.kernel,
+        #            self.device, self.verbose)
+        #    self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
 
         else:
             raise ValueError("Unrecognized fitting mode supplied. Must provide one of "

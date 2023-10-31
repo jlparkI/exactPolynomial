@@ -109,10 +109,10 @@ class lBFGSModelFit:
         wvec = weights
         if self.device == "gpu":
             wvec = cp.asarray(wvec).astype(self.dtype)
-        if self.regularization == "l1":
+        if self.regularization == "l2":
             xprod = self.lambda_**2 * wvec
         else:
-            xprod = self.signval(wvec).astype(self.dtype)
+            xprod = self.lambda_ * self.signval(wvec).astype(self.dtype)
 
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
