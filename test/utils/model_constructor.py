@@ -11,7 +11,7 @@ RANDOM_STATE = 123
 def get_models(dataset):
     """Generates a CPU model and a GPU model with generic
     kernel settings."""
-    cpu_mod = ExactQuad(device = "cpu")
+    cpu_mod = ExactQuad(device = "cpu", regularization = "l1")
 
     if "cupy" not in sys.modules:
         print("Cupy not installed -- skipping the CUDA test.")

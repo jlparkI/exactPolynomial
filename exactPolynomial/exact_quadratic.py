@@ -8,9 +8,10 @@ except:
     print("CuPy not detected. xGPR will run in CPU-only mode.")
 import numpy as np
 from .kernels import KERNEL_NAME_TO_CLASS
+from .preconditioners.inter_device_preconditioners import InterDevicePreconditioner
 
 from .fitting_toolkit.lbfgs_fitting_toolkit import lBFGSModelFit
-#from .fitting_toolkit.lsr1_fitting_toolkit import lSR1
+from .fitting_toolkit.lsr1_fitting_toolkit import lSR1
 
 
 
@@ -19,7 +20,7 @@ class ExactQuadratic():
     large dataset, using L1 or L2 regularization."""
 
     def __init__(self, device = "cpu", verbose = True,
-                    num_threads = 2):
+                    regularization = "l2", num_threads = 2):
         """Class constructor.
 
         Args:
@@ -29,20 +30,26 @@ class ExactQuadratic():
                 Defaults to 'cpu'.
             verbose (bool): If True, regular updates are printed
                 during fitting and tuning. Defaults to True.
+            regularization (str): One of 'l1', 'l2'. Determines the type of
+                regularization which is applied. If using l1, the model actually
+                uses ElasticNet with a very small l2 term (1e-6); this ensures
+                the problem is strongly convex and improves our ability to fit
+                quickly.
             num_threads (int): The number of threads to use for random feature generation
                 if running on CPU. If running on GPU, this argument is ignored.
         """
+        if regularization not in ['l1', 'l2']:
+            raise ValueError("Unrecognized regularization option supplied.")
         self.kernel = None
         self.weights = None
         self.device = device
+        self.regularization = regularization
 
         self.num_threads = num_threads
 
         self.verbose = verbose
         self.trainy_mean = 0.0
         self.trainy_std = 1.0
-
-        self.kernel_spec_parms = {}
 
 
     def initialize(self, dataset, random_seed = 123, hyperparams = None, input_bounds = None):
@@ -144,8 +151,7 @@ class ExactQuadratic():
         if kernel_choice not in KERNEL_NAME_TO_CLASS:
             raise ValueError("An unrecognized kernel choice was supplied.")
         kernel = KERNEL_NAME_TO_CLASS[kernel_choice](input_dims,
-                            self.device, self.num_threads,
-                            kernel_spec_parms = self.kernel_spec_parms)
+                            self.device, self.num_threads)
         if bounds is not None:
             kernel.set_bounds(bounds)
         return kernel
@@ -210,17 +216,54 @@ class ExactQuadratic():
         """
         dataset.device = "cpu"
 
+    def build_preconditioner(self, dataset, max_rank = 512,
+                        preset_hyperparams = None, random_state = 123,
+                        method = "srht"):
+        """Builds a preconditioner.
 
-    def fit(self, dataset, regularization = "l1", tol = 1e-6,
-                preset_hyperparams=None, max_iter = 500,
-                run_diagnostics = False, mode = "lbfgs"):
+        Args:
+            dataset: A Dataset object.
+            max_rank (int): The maximum rank for the preconditioner, which
+                uses a low-rank approximation to the matrix inverse. Larger
+                numbers mean a more accurate approximation and thus reduce
+                the number of iterations, but make the preconditioner more
+                expensive to construct.
+            preset_hyperparams: Either None or a numpy array. If None,
+                hyperparameters must already have been tuned using one
+                of the tuning methods (e.g. tune_hyperparams_bayes_bfgs).
+                If supplied, must be a numpy array of shape (N, 2) where
+                N is the number of hyperparams for the kernel in question.
+            random_state (int): Seed for the random number generator.
+            method (str): one of "srht", "srht_2" or "gauss". srht is MUCH faster for
+                large datasets and should always be preferred to "gauss".
+                "srht_2" runs two passes over the dataset. For the same max_rank,
+                the preconditioner built by "srht_2" will generally reduce the
+                number of CG iterations by 25-30% compared with a preconditioner
+                built by "gauss" or "srht", but it does of course incur the
+                additional expense of a second pass over the dataset.
+
+        Returns:
+            preconditioner: A preconditioner object.
+            achieved_ratio (float): The min eigval of the preconditioner over
+                lambda, the noise hyperparameter shared between all kernels.
+                This value has decent predictive value for assessing how
+                well the preconditioner is likely to perform.
+        """
+        self._run_pre_fitting_prep(dataset, preset_hyperparams)
+        preconditioner = InterDevicePreconditioner(self.kernel, dataset, max_rank,
+                self.verbose, random_state, method, self.regularization)
+        self._run_post_fitting_cleanup(dataset)
+        return preconditioner, preconditioner.achieved_ratio
+
+
+    def fit(self, dataset, tol = 1e-6, preset_hyperparams=None,
+            max_iter = 500, run_diagnostics = False, mode = "lbfgs",
+            preconditioner = None):
         """Fits the model after checking that the input data
         is consistent with the kernel choice and other user selections.
 
         Args:
             dataset: Object of class OnlineDataset or OfflineDataset.
-            regularization (str): One of 'l1', 'l2'. Determines the type of
-                regularization which is applied.
             tol (float): The threshold below which iterative strategies (L-BFGS, CG,
                 SGD) are deemed to have converged. Defaults to 1e-5. Note that how
                 reaching the threshold is assessed may depend on the algorithm.
@@ -240,6 +283,7 @@ class ExactQuadratic():
                 useful when optimizing hyperparameters, since otherwise we want to calculate
                 the variance. It is best to leave this as default False unless performing
                 hyperparameter optimization.
+            preconditioner: Either None or a valid preconditioner object.
 
         Returns:
             Does not return anything unless run_diagnostics is True.
@@ -250,21 +294,19 @@ class ExactQuadratic():
         Raises:
             ValueError: The input dataset is checked for validity before tuning is
                 initiated, an error is raised if problems are found."""
-        if regularization not in ['l1', 'l2']:
-            raise ValueError("Unrecognized regularization option supplied.")
         self._run_pre_fitting_prep(dataset, preset_hyperparams)
         self.weights = None
 
         if self.verbose:
             print("starting fitting")
         if mode == "lbfgs":
-            model_fitter = lBFGSModelFit(dataset, regularization, self.kernel,
-                    self.device, self.verbose)
+            model_fitter = lBFGSModelFit(dataset, self.regularization, self.kernel,
+                    self.device, self.verbose, preconditioner = preconditioner)
             self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter)
-        #elif mode == "lsr1":
-        #    model_fitter = lSR1(dataset, regularization, self.kernel,
-        #            self.device, self.verbose)
-        #    self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
+        elif mode == "lsr1":
+            model_fitter = lSR1(dataset, self.kernel, self.device, self.verbose,
+                    preconditioner, regularization = self.regularization)
+            self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
 
         else:
             raise ValueError("Unrecognized fitting mode supplied. Must provide one of "
@@ -282,25 +324,6 @@ class ExactQuadratic():
 
 
     ####The remaining functions are all getters / setters.
-
-
-    @property
-    def kernel_spec_parms(self):
-        """Property definition for the kernel_spec_parms."""
-        return self._kernel_spec_parms
-
-    @kernel_spec_parms.setter
-    def kernel_spec_parms(self, value):
-        """Setter for kernel_spec_parms. If the
-        user is changing this, the kernel needs to be
-        re-initialized."""
-        if not isinstance(value, dict):
-            raise ValueError("Tried to set kernel_spec_parms to something that "
-                    "was not a dict!")
-        self._kernel_spec_parms = value
-        self.kernel = None
-        self.weights = None
-
 
     @property
     def num_threads(self):
@@ -333,7 +356,7 @@ class ExactQuadratic():
             raise ValueError("You have specified the gpu fit mode but CuPy is "
                 "not installed. Currently CPU only fitting is available.")
 
-        if "cuda_rf_gen_module" not in sys.modules and value == "gpu":
+        if "cuda_poly_feats" not in sys.modules and value == "gpu":
             raise ValueError("You have specified the gpu fit mode but the "
                 "cudaHadamardTransform module is not installed / "
                 "does not appear to have installed correctly. "

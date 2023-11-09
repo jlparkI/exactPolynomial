@@ -1,5 +1,6 @@
 """Contains the tools needed to get weights for the model
-using the L-SR1 optimization algorithm."""
+using the L-SR1 optimization algorithm with an optional
+but strongly recommended preconditioner as H0."""
 import numpy as np
 try:
     import cupy as cp
@@ -11,13 +12,13 @@ except:
 class lSR1:
     """This class contains all the tools needed to fit a model
     whose hyperparameters have already been tuned using the L-SR1
-    algorithm.
+    algorithm. It is highly preferable to supply a preconditioner
+    which acts as an H0 approximation, since otherwise this
+    algorithm may take a long time to converge.
 
     Attributes:
         dataset: An OnlineDataset or OfflineDatset containing all the
             training data.
-        regularization (str): One of 'l1', 'l2'. Determines regularization
-            type.
         kernel: A kernel object that can generate random features for
             the Dataset.
         lambda_ (float): The noise hyperparameter shared across all kernels.
@@ -27,38 +28,40 @@ class lSR1:
         zero_arr: A convenience reference to either cp.zeros or np.zeros.
         dtype: A convenience reference to either cp.float64 or np.float64,
             depending on device.
-        signval: A convenience reference to either cp.sign or np.sign.
         n_iter (int): The number of function evaluations performed.
         n_updates (int): The number of Hessian updates to date. Not necessarily
             the same as n_iter, since Hessian updates can be skipped.
         history_size (int): The number of previous gradient updates to store.
         losses (list): A list of loss values. Useful for comparing rate of
             convergence with other options.
+        preconditioner: Either None or a valid preconditioner object.
         stored_mvecs (ndarray): A cupy or numpy array containing the
-            sk - Hk yk terms; shape (num_feats, history_size).
+            sk - Hk yk terms; shape (num_rffs, history_size).
         stored_nconstants (ndarray): The denominator of the Hessian
             update; shape (history_size).
+        regularization (str): One of "l1", "l2". If "l1", a weak elastic net
+            is actually used for easier fitting.
     """
 
-    def __init__(self, dataset, regularization,
-            kernel, device, verbose, history_size = 200):
+    def __init__(self, dataset, kernel, device, verbose, preconditioner = None,
+            history_size = 200, regularization = "l2"):
         """Class constructor.
 
         Args:
             dataset: An OnlineDataset or OfflineDatset containing all the
                 training data.
-            regularization (str): One of 'l1', 'l2'. Determines regularization
-                type.
             kernel: A kernel object that can generate random features for
                 the Dataset.
             device (str): One of 'cpu', 'gpu'. Indicates where calculations
                 will be performed.
             verbose (bool): If True, print regular updates.
+            preconditioner: Either None or a valid preconditioner object.
             history_size (int): The number of recent gradient updates
                 to store.
+            regularization (str): One of "l1", "l2". If "l1", a weak elastic net
+                is actually used for easier fitting.
         """
         self.dataset = dataset
-        self.regularization = regularization
         self.kernel = kernel
         self.lambda_ = kernel.get_lambda()
         self.verbose = verbose
@@ -76,6 +79,7 @@ class lSR1:
         self.history_size = history_size
 
         self.losses = []
+        self.preconditioner = preconditioner
         self.stored_mvecs = self.zero_arr((self.kernel.get_num_feats(),
             self.history_size))
         self.stored_nconstants = self.zero_arr((self.history_size))
@@ -83,6 +87,7 @@ class lSR1:
 
         self.stored_bvecs = self.stored_mvecs.copy()
         self.stored_bconstants = self.stored_nconstants.copy()
+        self.regularization = regularization
 
 
     def fit_model(self, max_iter = 500, tol = 1e-6):
@@ -128,7 +133,7 @@ class lSR1:
         by the algorithm.
 
         Args:
-            grad (ndarray): The previous gradient of the weights. Shape (num_feats).
+            grad (ndarray): The previous gradient of the weights. Shape (num_rffs).
             loss (float): The current loss value.
             wvec (ndarray): The current weight values.
             z_trans_y (ndarray): The right hand side b in the equation Ax=b.
@@ -167,21 +172,21 @@ class lSR1:
         """Find a step size satisfying the Wolfe conditions.
 
         Args:
-            old_grad (ndarray): A (num_feats) shape array with the
+            old_grad (ndarray): A (num_rffs) shape array with the
                 last gradient.
-            grad_update (ndarray): A (num_feats, 2) shape array where
+            grad_update (ndarray): A (num_rffs, 2) shape array where
                 the first column is the component of the gradient due
                 to the current wvec, while the second is the component
                 due to the shift.
             loss (float): The current loss.
             init_norms (float): The initial loss; divide by this so losses
                 are 'scaled' for easier interpretation.
-            z_trans_y (ndarray): The product Z^T @ y; shape (num_feats).
+            z_trans_y (ndarray): The product Z^T @ y; shape (num_rffs).
             c1 (float): The c1 constant for the Wolfe conditions.
             c2 (float): The c2 constant for the Wolfe conditions.
 
         Returns:
-            new_grad (ndarray): A (num_feats) shape array containing the
+            new_grad (ndarray): A (num_rffs) shape array containing the
                 new gradient.
             new_loss (float): The new loss value.
             step_size (float): The selected step size.
@@ -234,18 +239,24 @@ class lSR1:
         Hessian with an input vector.
 
         Args:
-            ivec (ndarray): A cupy or numpy array of shape (num_feats) with which
+            ivec (ndarray): A cupy or numpy array of shape (num_rffs) with which
                 to take the product.
 
         Returns:
             ovec (ndarray): Hk @ ivec.
         """
         if self.n_updates == 0:
-            return ivec
+            if self.preconditioner is None:
+                return ivec
+            return self.preconditioner.batch_matvec(ivec[:,None])[:,0]
 
         ovec = (self.stored_mvecs[:,:self.n_updates] * ivec[:,None]).sum(axis=0) / \
                 self.stored_nconstants[:self.n_updates]
         ovec = (ovec[None,:] * self.stored_mvecs[:,:self.n_updates]).sum(axis=1)
+        if self.preconditioner is not None:
+            ovec += self.preconditioner.batch_matvec(ivec[:,None])[:,0]
+        else:
+            ovec += ivec
         return ovec
 
 
@@ -254,19 +265,25 @@ class lSR1:
         an input vector.
 
         Args:
-            ivec (ndarray): A cupy or numpy array of shape (num_feats) with which
+            ivec (ndarray): A cupy or numpy array of shape (num_rffs) with which
                 to take the product.
 
         Returns:
             ovec (ndarray): Hk @ ivec.
         """
         if self.n_updates == 0:
-            return ivec
+            if self.preconditioner is None:
+                return ivec
+            return self.preconditioner.rev_batch_matvec(ivec[:,None])[:,0]
 
         ovec = (self.stored_bvecs[:,:self.n_updates] * ivec[:,None]).sum(axis=0) / \
                 self.stored_bconstants[:self.n_updates]
         ovec = (ovec[None,:] * self.stored_bvecs[:,:self.n_updates]).sum(axis=1)
-        return ovec + ivec
+        if self.preconditioner is not None:
+            ovec += self.preconditioner.rev_batch_matvec(ivec[:,None])[:,0]
+        else:
+            ovec += ivec
+        return ovec
 
 
     def cost_fun_regression(self, wvec):
@@ -276,19 +293,21 @@ class lSR1:
         on the results.
 
         Args:
-            wvec (np.ndarray): A (num_feats, 2) shape array. The first
+            wvec (np.ndarray): A (num_rffs, 2) shape array. The first
                 column is the current set of weights; the second
                 is the proposed shift vector assuming step size 1.
 
         Returns:
-            xprod (np.ndarray): A (num_feats, 2) shape array, containing
+            xprod (np.ndarray): A (num_rffs, 2) shape array, containing
                 (Z^T Z + lambda**2) @ wvec.
         """
-        if self.regularization == "l2":
-            xprod = self.lambda_**2 * wvec
+        if self.regularization == "l1":
+            xprod = self.lambda_**2 * self.signval(wvec).astype(self.dtype)
+            xprod += 1e-6 * wvec
         else:
-            xprod = self.lambda_ * self.signval(wvec)
+            xprod = self.lambda_**2 * wvec
 
+        xprod = self.lambda_**2 * wvec
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
             xprod += (xtrans.T @ (xtrans @ wvec))
@@ -297,6 +316,7 @@ class lSR1:
             if self.n_iter % 5 == 0:
                 print(f"Nfev {self.n_iter}")
         return xprod
+
 
 def calc_zty(dataset, kernel):
     """Calculates the vector Z^T y.

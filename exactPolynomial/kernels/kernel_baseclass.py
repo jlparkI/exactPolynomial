@@ -44,12 +44,9 @@ class KernelBaseclass(ABC):
         out_type: A reference to either np.float64 or cp.float64 depending on
             device.
         empty: A reference to either np.emtpy or cp.empty depending on self.device.
-        fit_intercept (bool): Whether to fit a y-intercept. Defaults to True but can
-            be set to False by adding "intercept":False to kernel_spec_parms.
     """
 
-    def __init__(self, num_feats, xdim, num_threads = 2,
-            kernel_spec_parms = {}):
+    def __init__(self, num_feats, xdim, num_threads = 2):
         """Constructor for the KernelBaseclass.
 
         Args:
@@ -66,11 +63,6 @@ class KernelBaseclass(ABC):
         Raises:
         """
         self.num_feats = num_feats
-        self.fit_intercept = True
-        if "intercept" in kernel_spec_parms:
-            if kernel_spec_parms["intercept"] is False:
-                self.fit_intercept = False
-
         self.xdim = xdim
         self.hyperparams = None
         self.bounds = None

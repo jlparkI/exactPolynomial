@@ -4,12 +4,12 @@ features in the input vector is large -- even 600 is on
 the large side."""
 import numpy as np
 try:
-    from cuda_rf_gen_module import cudaExactQuadratic
+    from cuda_poly_feats import cudaExactQuadratic
 except:
     pass
 
 from .kernel_baseclass import KernelBaseclass
-from cpu_rf_gen_module import cpuExactQuadratic
+from cpu_poly_feats import cpuExactQuadratic
 
 
 class ExactQuadratic(KernelBaseclass):
@@ -23,8 +23,7 @@ class ExactQuadratic(KernelBaseclass):
             that will be used for feature generation.
     """
 
-    def __init__(self, xdim, device = "cpu", num_threads = 2,
-            kernel_spec_parms = {}):
+    def __init__(self, xdim, device = "cpu", num_threads = 2):
         """Constructor.
 
         Args:
@@ -35,14 +34,10 @@ class ExactQuadratic(KernelBaseclass):
             device (str): One of 'cpu', 'gpu'. Indicates the starting device.
             num_threads (int): The number of threads to use if running on CPU. If
                 running on GPU, this is ignored.
-            kernel_spec_parms (dict): A dictionary of kernel-specific parameters.
-                In this case, may optionally contain 'intercept'; if false, no
-                y-intercept is fitted.
         """
         actual_num_feats = 1 + xdim[1] * 2 + int((xdim[1] * (xdim[1] - 1)) / 2)
 
-        super().__init__(actual_num_feats, xdim, num_threads,
-                kernel_spec_parms = kernel_spec_parms)
+        super().__init__(actual_num_feats, xdim, num_threads)
 
         self.hyperparams = np.ones((1))
         self.bounds = np.asarray([[1e-3,1e1]])

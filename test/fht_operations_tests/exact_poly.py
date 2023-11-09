@@ -8,10 +8,10 @@ import unittest
 import numpy as np
 from scipy.stats import chi
 
-from cpu_rf_gen_module import cpuExactQuadratic as CEQ
+from cpu_poly_feats import cpuExactQuadratic as CEQ
 
 try:
-    from cuda_rf_gen_module import cudaExactQuadratic as GEQ
+    from cuda_poly_feats import cudaExactQuadratic as GEQ
     import cupy as cp
 except:
     pass

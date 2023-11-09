@@ -26,18 +26,19 @@ def test_fit(device = "gpu"):
     else:
         model = cpu_mod
 
-    model.verbose = False
+    model.verbose = True
 
     test_dataset, _ = build_test_dataset(xsuffix = "testxvalues.npy",
             ysuffix = "testyvalues.npy")
 
-    hparams = np.array([-3])#np.array([-1.375])
+    hparams = np.array([-0.687])
 
+    preconditioner, ratio = model.build_preconditioner(train_dataset, max_rank = 256)
 
     model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 500,
-            mode = "lbfgs")
+            mode = "lsr1", preconditioner = preconditioner)
     score = evaluate_model(model, train_dataset, test_dataset)
 
-    print(f"LBFGS score, {score}")
+    print(f"Test set score, {score}")
 
     return score

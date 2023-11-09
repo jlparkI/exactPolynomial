@@ -30,9 +30,11 @@ class lBFGSModelFit:
             depending on device.
         signval: A convenience reference to either cp.sign or np.sign.
         niter (int): The number of function evaluations performed.
+        preconditioner: Either None or a valid preconditioner object.
     """
 
-    def __init__(self, dataset, regularization, kernel, device, verbose):
+    def __init__(self, dataset, regularization, kernel, device, verbose,
+            preconditioner = None):
         """Class constructor.
 
         Args:
@@ -45,6 +47,7 @@ class lBFGSModelFit:
         device (str): One of 'cpu', 'gpu'. Indicates where calculations
             will be performed.
         verbose (bool): If True, print regular updates.
+        preconditioner: Either None or a valid preconditioner object.
         """
         if regularization not in ['l1', 'l2']:
             raise ValueError("Unrecognized regularization option supplied.")
@@ -63,6 +66,8 @@ class lBFGSModelFit:
             self.dtype = np.float64
             self.signval = np.sign
         self.n_iter = 0
+        self.preconditioner = preconditioner
+
 
     def fit_model_lbfgs(self, max_iter = 500, tol = 3e-09):
         """Finds an optimal set of weights using the information already
@@ -112,23 +117,26 @@ class lBFGSModelFit:
         if self.regularization == "l2":
             xprod = self.lambda_**2 * wvec
         else:
-            xprod = self.lambda_ * self.signval(wvec).astype(self.dtype)
+            xprod = self.lambda_**2 * self.signval(wvec).astype(self.dtype)
+            xprod += 1e-6 * wvec
 
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
             xprod += (xtrans.T @ (xtrans @ wvec))
 
-
         grad = xprod - z_trans_y
-        loss = (grad * grad).sum()
+        loss = np.sqrt(float((grad * grad).sum()))
+
+        if self.preconditioner is not None:
+            grad = self.preconditioner.batch_matvec(grad[:,None])[:,0]
 
         if self.device == "gpu":
             grad = cp.asnumpy(grad).astype(np.float64)
         if self.verbose:
             if self.n_iter % 5 == 0:
-                print(f"Nfev {self.n_iter} complete")
+                print(f"Nfev {self.n_iter} complete, loss {loss}")
         self.n_iter += 1
-        return float(loss), grad
+        return loss, grad
 
 
 def calc_zty(dataset, kernel):
