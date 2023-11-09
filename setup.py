@@ -56,7 +56,7 @@ def setup_cpu_fast_hadamard_extensions(setup_fpath):
     """Finds the paths for the fast hadamard transform extensions for CPU and
     sets them up."""
     cpu_fast_transform_path = os.path.join(setup_fpath, "exactPolynomial",
-                "random_feature_generation", "cpu_rf_gen")
+                "feature_generation", "cpu_feat_gen")
     os.chdir(cpu_fast_transform_path)
     sources = []
     for target_dir in ["poly_ops"]:
@@ -70,9 +70,9 @@ def setup_cpu_fast_hadamard_extensions(setup_fpath):
     os.chdir(setup_fpath)
 
     cpu_basic_op_wrapper = os.path.join(cpu_fast_transform_path,
-                    "cpu_rf_gen_module.pyx")
+                    "cpu_poly_feats.pyx")
     sources += [cpu_basic_op_wrapper]
-    cpu_basic_op_ext = Extension("cpu_rf_gen_module",
+    cpu_basic_op_ext = Extension("cpu_poly_feats",
                     sources = sources, language="c++",
                     include_dirs=[numpy.get_include(),
                             cpu_fast_transform_path])
@@ -94,7 +94,7 @@ def setup_cuda_fast_hadamard_extensions(setup_fpath, CUDA_PATH, NO_CUDA = False)
     if NO_CUDA:
         return [], []
     cuda_hadamard_path = os.path.join(setup_fpath, "exactPolynomial",
-            "random_feature_generation", "gpu_rf_gen")
+            "feature_generation", "gpu_feat_gen")
     os.chdir(cuda_hadamard_path)
     subprocess.run(["chmod", "+x", "nvcc_compile.sh"], check = True)
     subprocess.run(["./nvcc_compile.sh"], check = True)
@@ -106,8 +106,8 @@ def setup_cuda_fast_hadamard_extensions(setup_fpath, CUDA_PATH, NO_CUDA = False)
         os.chdir(setup_fpath)
 
         cuda_basic_path = os.path.join(cuda_hadamard_path,
-                            "cuda_rf_gen_module.pyx")
-        cuda_basic_ext = Extension("cuda_rf_gen_module",
+                            "cuda_poly_feats.pyx")
+        cuda_basic_ext = Extension("cuda_poly_feats",
                 sources=[cuda_basic_path],
                 language="c++",
                 libraries=["array_operations", "cudart_static"],
@@ -171,23 +171,23 @@ def main():
 
 
     #Do some cleanup. (Really only matters when running setup.py develop.)
-    os.chdir(os.path.join(setup_fpath, "exactPolynomial", "random_feature_generation",
-                "gpu_rf_gen"))
+    os.chdir(os.path.join(setup_fpath, "exactPolynomial", "feature_generation",
+                "gpu_feat_gen"))
     for gpu_fht_file in gpu_fht_files:
         compiled_cython_fname = os.path.basename(gpu_fht_file.replace(".pyx", ".cpp"))
         if compiled_cython_fname in os.listdir():
             os.remove(compiled_cython_fname)
 
-    os.chdir(os.path.join(setup_fpath, "exactPolynomial", "random_feature_generation",
-                "cpu_rf_gen"))
+    os.chdir(os.path.join(setup_fpath, "exactPolynomial", "feature_generation",
+                "cpu_feat_gen"))
 
     for cpu_fht_file in cpu_fht_files:
         compiled_cython_fname = os.path.basename(cpu_fht_file.replace(".pyx", ".cpp"))
         if compiled_cython_fname in os.listdir():
             os.remove(compiled_cython_fname)
 
-    os.chdir(os.path.join(setup_fpath, "exactPolynomial", "random_feature_generation",
-                "gpu_rf_gen"))
+    os.chdir(os.path.join(setup_fpath, "exactPolynomial", "feature_generation",
+                "gpu_feat_gen"))
     if "libarray_operations.a" in os.listdir():
         os.remove("libarray_operations.a")
 
