@@ -83,10 +83,7 @@ class lBFGSModelFit:
 
         Args:
             max_iter (int): The maximum number of iterations for L_BFGS.
-            tol (float): The threshold for convergence. User not currently
-                allowed to specify since setting a larger / smaller tol
-                can result in very poor results with L-BFGS (either very
-                large number of iterations or poor performance).
+            tol (float): The threshold for convergence.
 
         Returns:
             wvec: A cupy or numpy array depending on device that contains the
@@ -132,12 +129,12 @@ class lBFGSModelFit:
             xtrans = self.kernel.transform_x(xdata)
             xprod += (xtrans.T @ (xtrans @ wvec))
 
-        grad = xprod - z_trans_y
+        grad = 2 * xprod - 2 * z_trans_y
         loss = float(y_trans_y + (wvec.T @ xprod) - 2 * wvec.T @ z_trans_y)
 
         if self.regularization == "l1":
             grad += self.lambda_**2 * self.signval(wvec).astype(self.dtype)
-            loss += float(self.absval(wvec).sum())
+            loss += self.lambda_**2 * float(self.absval(wvec).sum())
 
         #We can normalize the loss because wvec initial is all zeros. Otherwise
         #that would not work.

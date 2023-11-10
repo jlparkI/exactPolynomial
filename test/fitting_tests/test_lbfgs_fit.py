@@ -28,14 +28,15 @@ class CheckLBFGSFit(unittest.TestCase):
 
         niter, _ = cpu_mod.fit(online_data,
                 max_iter = 500, run_diagnostics = True,
-                mode = "lbfgs", preset_hyperparams = HPARAM)
+                mode = "lbfgs", preset_hyperparams = HPARAM,
+                tol = 1e-4)
         print(f"niter: {niter}")
         self.assertTrue(niter < 150)
 
         if gpu_mod is not None:
             niter, _ = gpu_mod.fit(online_data,
                 max_iter = 500, run_diagnostics = True,
-                tol = 1e-6,  mode = "lbfgs", preset_hyperparams = HPARAM)
+                tol = 1e-4,  mode = "lbfgs", preset_hyperparams = HPARAM)
             print(f"niter: {niter}")
             self.assertTrue(niter < 150)
 

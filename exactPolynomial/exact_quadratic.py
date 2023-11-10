@@ -264,7 +264,7 @@ class ExactQuadratic():
         return preconditioner, preconditioner.achieved_ratio
 
 
-    def fit(self, dataset, tol = 1e-6, preset_hyperparams=None,
+    def fit(self, dataset, tol = 1e-5, preset_hyperparams=None,
             max_iter = 500, run_diagnostics = False, mode = "lbfgs",
             preconditioner = None):
         """Fits the model after checking that the input data
@@ -310,7 +310,7 @@ class ExactQuadratic():
         if mode == "lbfgs":
             model_fitter = lBFGSModelFit(dataset, self.regularization, self.kernel,
                     self.device, self.verbose, elastic_l2_penalty = self.elastic_l2_penalty)
-            self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter)
+            self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter, tol=tol)
         elif mode == "lsr1":
             if self.regularization == "l1":
                 model_fitter = L1_lSR1(dataset, self.kernel, self.device, self.verbose,
