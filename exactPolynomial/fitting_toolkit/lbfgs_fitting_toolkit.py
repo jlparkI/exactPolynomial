@@ -30,24 +30,30 @@ class lBFGSModelFit:
             depending on device.
         signval: A convenience reference to either cp.sign or np.sign.
         niter (int): The number of function evaluations performed.
-        preconditioner: Either None or a valid preconditioner object.
+        elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
+            if 'l1' regularization is selected. This value should be small (1e-6 to
+            1e-4 is typical) and should be significantly smaller than the L1
+            penalty that has been selected, otherwise sparsity may not be achieved.
     """
 
     def __init__(self, dataset, regularization, kernel, device, verbose,
-            preconditioner = None):
+            elastic_l2_penalty = 1e-4):
         """Class constructor.
 
         Args:
-        dataset: An OnlineDataset or OfflineDatset containing all the
-            training data.
-        regularization (str): One of 'l1', 'l2'. Determines the type of
-            regularization that is applied.
-        kernel: A kernel object that can generate random features for
-            the Dataset.
-        device (str): One of 'cpu', 'gpu'. Indicates where calculations
-            will be performed.
-        verbose (bool): If True, print regular updates.
-        preconditioner: Either None or a valid preconditioner object.
+            dataset: An OnlineDataset or OfflineDatset containing all the
+                training data.
+            regularization (str): One of 'l1', 'l2'. Determines the type of
+                regularization that is applied.
+            kernel: A kernel object that can generate random features for
+                the Dataset.
+            device (str): One of 'cpu', 'gpu'. Indicates where calculations
+                will be performed.
+            verbose (bool): If True, print regular updates.
+            elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
+                if 'l1' regularization is selected. This value should be small (1e-6 to
+                1e-4 is typical) and should be significantly smaller than the L1
+                penalty that has been selected, otherwise sparsity may not be achieved.
         """
         if regularization not in ['l1', 'l2']:
             raise ValueError("Unrecognized regularization option supplied.")
@@ -61,12 +67,14 @@ class lBFGSModelFit:
             self.zero_arr = cp.zeros
             self.dtype = cp.float64
             self.signval = cp.sign
+            self.absval = cp.abs
         else:
             self.zero_arr = np.zeros
             self.dtype = np.float64
             self.signval = np.sign
+            self.absval = np.abs
         self.n_iter = 0
-        self.preconditioner = preconditioner
+        self.elastic_l2_penalty = elastic_l2_penalty
 
 
     def fit_model_lbfgs(self, max_iter = 500, tol = 3e-09):
@@ -84,11 +92,11 @@ class lBFGSModelFit:
             wvec: A cupy or numpy array depending on device that contains the
                 best set of weights found. A 1d array of length self.kernel.get_num_feats().
         """
-        z_trans_y, _ = calc_zty(self.dataset, self.kernel)
+        z_trans_y, y_trans_y = calc_zty(self.dataset, self.kernel)
         init_weights = np.zeros((self.kernel.get_num_feats()))
         res = minimize(self.cost_fun, options={"maxiter":max_iter, "ftol":tol},
                     method = "L-BFGS-B",
-                    x0 = init_weights, args = (z_trans_y,),
+                    x0 = init_weights, args = (z_trans_y, y_trans_y),
                     jac = True, bounds = None)
 
         wvec = res.x
@@ -97,7 +105,7 @@ class lBFGSModelFit:
         return wvec, self.n_iter, []
 
 
-    def cost_fun(self, weights, z_trans_y):
+    def cost_fun(self, weights, z_trans_y, y_trans_y):
         """The cost function for finding the weights using
         L-BFGS. Returns both the current loss and the gradient.
 
@@ -106,6 +114,7 @@ class lBFGSModelFit:
             z_trans_y: A cupy or numpy array (depending on device)
                 containing Z.T @ y, where Z is the random features
                 generated for all of the training datapoints.
+            y_trans_y (float): y^T y.
 
         Returns:
             loss (float): The current loss.
@@ -117,24 +126,27 @@ class lBFGSModelFit:
         if self.regularization == "l2":
             xprod = self.lambda_**2 * wvec
         else:
-            xprod = self.lambda_**2 * self.signval(wvec).astype(self.dtype)
-            xprod += 1e-6 * wvec
+            xprod = self.elastic_l2_penalty * wvec
 
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
             xprod += (xtrans.T @ (xtrans @ wvec))
 
         grad = xprod - z_trans_y
-        loss = np.sqrt(float((grad * grad).sum()))
+        loss = float(y_trans_y + (wvec.T @ xprod) - 2 * wvec.T @ z_trans_y)
 
-        if self.preconditioner is not None:
-            grad = self.preconditioner.batch_matvec(grad[:,None])[:,0]
+        if self.regularization == "l1":
+            grad += self.lambda_**2 * self.signval(wvec).astype(self.dtype)
+            loss += float(self.absval(wvec).sum())
+
+        #We can normalize the loss because wvec initial is all zeros. Otherwise
+        #that would not work.
 
         if self.device == "gpu":
             grad = cp.asnumpy(grad).astype(np.float64)
         if self.verbose:
             if self.n_iter % 5 == 0:
-                print(f"Nfev {self.n_iter} complete, loss {loss}")
+                print(f"Nfev {self.n_iter} complete, loss {loss / y_trans_y}")
         self.n_iter += 1
         return loss, grad
 

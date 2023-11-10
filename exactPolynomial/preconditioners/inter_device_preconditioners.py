@@ -35,7 +35,7 @@ class InterDevicePreconditioner():
 
     def __init__(self, kernel, dataset, max_rank, verbose,
                 random_state = 123, method = "srht",
-                regularization = "l2"):
+                regularization = "l2", elastic_l2_penalty = 1e-4):
         """Class constructor.
 
         Args:
@@ -50,6 +50,10 @@ class InterDevicePreconditioner():
                 preconditioner construction.
             regularization (str): One of "l1", "l2". If "l1", Elasticnet with a very
                 weak l2 penalty is actually used.
+            elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
+                if 'l1' regularization is selected. This value should be small (1e-6 to
+                1e-4 is typical) and should be significantly smaller than the L1
+                penalty that has been selected, otherwise sparsity may not be achieved.
         """
         if method not in ["srht_2", "srht_3", "srht", "gauss"]:
             raise ValueError("Unknown method supplied for preconditioner "
@@ -70,10 +74,8 @@ class InterDevicePreconditioner():
 
         if regularization == "l2":
             self.eig = s_mat + lambda_**2
-            self.inv_eig = s_mat + lambda_**2
         else:
-            self.eig = s_mat + lambda_**2
-            self.inv_eig = s_mat + 1e-6
+            self.eig = s_mat + elastic_l2_penalty
 
         self.inv_eig = self.eig.copy()
         mask = self.eig > 1e-14
@@ -87,8 +89,8 @@ class InterDevicePreconditioner():
             self.achieved_ratio = float(min_eig / lambda_**2)
             self.prefactor = float(min_eig + lambda_**2)
         else:
-            self.achieved_ratio = float(min_eig / 1e-6)
-            self.prefactor = float(min_eig + 1e-6)
+            self.achieved_ratio = float(min_eig / elastic_l2_penalty)
+            self.prefactor = float(min_eig + elastic_l2_penalty)
 
         self.device = kernel.device
 

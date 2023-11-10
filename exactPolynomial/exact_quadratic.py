@@ -11,7 +11,8 @@ from .kernels import KERNEL_NAME_TO_CLASS
 from .preconditioners.inter_device_preconditioners import InterDevicePreconditioner
 
 from .fitting_toolkit.lbfgs_fitting_toolkit import lBFGSModelFit
-from .fitting_toolkit.lsr1_fitting_toolkit import lSR1
+from .fitting_toolkit.l1_reg_lsr1_toolkit import L1_lSR1
+from .fitting_toolkit.l2_reg_lsr1_toolkit import L2_lSR1
 
 
 
@@ -20,7 +21,8 @@ class ExactQuadratic():
     large dataset, using L1 or L2 regularization."""
 
     def __init__(self, device = "cpu", verbose = True,
-                    regularization = "l2", num_threads = 2):
+                    regularization = "l2", num_threads = 2,
+                    elastic_l2_penalty = 1e-6):
         """Class constructor.
 
         Args:
@@ -37,6 +39,10 @@ class ExactQuadratic():
                 quickly.
             num_threads (int): The number of threads to use for random feature generation
                 if running on CPU. If running on GPU, this argument is ignored.
+            elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
+                if 'l1' regularization is selected. This value should be small (1e-6 to
+                1e-4 is typical) and should be significantly smaller than the L1
+                penalty that has been selected, otherwise sparsity may not be achieved.
         """
         if regularization not in ['l1', 'l2']:
             raise ValueError("Unrecognized regularization option supplied.")
@@ -50,6 +56,7 @@ class ExactQuadratic():
         self.verbose = verbose
         self.trainy_mean = 0.0
         self.trainy_std = 1.0
+        self.elastic_l2_penalty = elastic_l2_penalty
 
 
     def initialize(self, dataset, random_seed = 123, hyperparams = None, input_bounds = None):
@@ -251,7 +258,8 @@ class ExactQuadratic():
         """
         self._run_pre_fitting_prep(dataset, preset_hyperparams)
         preconditioner = InterDevicePreconditioner(self.kernel, dataset, max_rank,
-                self.verbose, random_state, method, self.regularization)
+                self.verbose, random_state, method, self.regularization,
+                self.elastic_l2_penalty)
         self._run_post_fitting_cleanup(dataset)
         return preconditioner, preconditioner.achieved_ratio
 
@@ -301,11 +309,15 @@ class ExactQuadratic():
             print("starting fitting")
         if mode == "lbfgs":
             model_fitter = lBFGSModelFit(dataset, self.regularization, self.kernel,
-                    self.device, self.verbose, preconditioner = preconditioner)
+                    self.device, self.verbose, elastic_l2_penalty = self.elastic_l2_penalty)
             self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter)
         elif mode == "lsr1":
-            model_fitter = lSR1(dataset, self.kernel, self.device, self.verbose,
-                    preconditioner, regularization = self.regularization)
+            if self.regularization == "l1":
+                model_fitter = L1_lSR1(dataset, self.kernel, self.device, self.verbose,
+                        preconditioner, elastic_l2_penalty = self.elastic_l2_penalty)
+            else:
+                model_fitter = L2_lSR1(dataset, self.kernel, self.device, self.verbose,
+                        preconditioner)
             self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
 
         else:

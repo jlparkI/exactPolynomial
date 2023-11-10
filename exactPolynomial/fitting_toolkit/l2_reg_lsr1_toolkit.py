@@ -7,9 +7,11 @@ try:
 except:
     pass
 
+from .l1_reg_lsr1_toolkit import calc_zty
 
 
-class lSR1:
+
+class L2_lSR1:
     """This class contains all the tools needed to fit a model
     whose hyperparameters have already been tuned using the L-SR1
     algorithm. It is highly preferable to supply a preconditioner
@@ -39,12 +41,10 @@ class lSR1:
             sk - Hk yk terms; shape (num_rffs, history_size).
         stored_nconstants (ndarray): The denominator of the Hessian
             update; shape (history_size).
-        regularization (str): One of "l1", "l2". If "l1", a weak elastic net
-            is actually used for easier fitting.
     """
 
     def __init__(self, dataset, kernel, device, verbose, preconditioner = None,
-            history_size = 200, regularization = "l2"):
+            history_size = 200):
         """Class constructor.
 
         Args:
@@ -58,8 +58,6 @@ class lSR1:
             preconditioner: Either None or a valid preconditioner object.
             history_size (int): The number of recent gradient updates
                 to store.
-            regularization (str): One of "l1", "l2". If "l1", a weak elastic net
-                is actually used for easier fitting.
         """
         self.dataset = dataset
         self.kernel = kernel
@@ -69,11 +67,9 @@ class lSR1:
         if device == "gpu":
             self.zero_arr = cp.zeros
             self.dtype = cp.float64
-            self.signval = cp.sign
         else:
             self.zero_arr = np.zeros
             self.dtype = np.float64
-            self.signval = np.sign
         self.n_iter = 0
         self.n_updates = 0
         self.history_size = history_size
@@ -87,7 +83,6 @@ class lSR1:
 
         self.stored_bvecs = self.stored_mvecs.copy()
         self.stored_bconstants = self.stored_nconstants.copy()
-        self.regularization = regularization
 
 
     def fit_model(self, max_iter = 500, tol = 1e-6):
@@ -106,107 +101,63 @@ class lSR1:
 
         wvec = self.zero_arr((self.kernel.get_num_feats()))
         grad = -z_trans_y.copy()
-        init_norms = max(float((z_trans_y**2).sum()), 1e-12)
+        init_norms = max(np.sqrt(float((z_trans_y**2).sum()), 1e-12))
 
 
         self.n_iter, self.n_updates = 0, 0
-        loss, losses = 1., [1.]
+        grad_norms = [1.]
 
-        for i in range(0, max_iter):
-            grad, loss, step_size = self.update_params(grad, loss,
-                    wvec, z_trans_y, init_norms)
-            losses.append(loss)
-            if loss < tol:
+        while self.n_iter < max_iter:
+            grad, step_size = self.update_params(grad, wvec, z_trans_y)
+            grad_norms.append(np.sqrt(float(grad.T @ grad)) / init_norms)
+            if grad_norms[-1] < tol:
                 break
-            print(f"Loss: {loss}, step_size {step_size}")
+            if self.verbose:
+                print(f"Squared grad norm, normalized: {grad_norms[-1]}, step_size {step_size}", flush=True)
             self.n_iter += 1
 
         if self.device == "gpu":
             wvec = cp.asarray(wvec)
-        return wvec, self.n_iter, losses
+        return wvec, self.n_iter, grad_norms
 
 
 
 
-    def update_params(self, grad, loss, wvec, z_trans_y, init_norms):
+    def update_params(self, grad, wvec, z_trans_y):
         """Updates the weight vector and the approximate hessian maintained
         by the algorithm.
 
         Args:
             grad (ndarray): The previous gradient of the weights. Shape (num_rffs).
-            loss (float): The current loss value.
             wvec (ndarray): The current weight values.
             z_trans_y (ndarray): The right hand side b in the equation Ax=b.
-            init_norms (float): The initial norm of z_trans_y. Useful for
-                ensuring the loss is scaled.
 
         Returns:
             wvec (ndarray): The updated wvec.
             last_wvec (ndarray): Current wvec (which is now the last wvec).
         """
-        grad_update = self.zero_arr((wvec.shape[0], 2))
+        new_wvec = self.zero_arr((wvec.shape[0], 2))
         s_k = -self.inv_hess_vector_prod(grad)
-        grad_update[:,1] = s_k
-        grad_update[:,0] = wvec
+        new_wvec[:,1] = s_k
+        new_wvec[:,0] = wvec
 
-        grad_update = self.cost_fun_regression(grad_update)
+        grad_update = self.cost_fun_regression(new_wvec)
+        self.update_hess(grad_update.sum(axis=1) - z_trans_y - grad, s_k)
 
-        y_k = (grad_update.sum(axis=1) - z_trans_y) - grad
-
-        new_grad, new_loss, step_size = self.optimize_step_size(grad, grad_update,
-                loss, init_norms, z_trans_y)
+        step_size = float(z_trans_y.T @ s_k - s_k.T @ grad_update[:,0])
+        denom = float(s_k.T @ grad_update[:,1])
+        if np.abs(denom) < 1e-14:
+            step_size = 1e-10
+        else:
+            step_size /= denom
+        new_grad = (grad_update[:,0] + grad_update[:,1] * step_size) - \
+                z_trans_y
 
         s_k *= step_size
-        y_k = new_grad - grad
-
-        self.update_hess(y_k, s_k)
 
         wvec += s_k
-        return new_grad, new_loss, step_size
+        return new_grad, step_size
 
-
-
-
-    def optimize_step_size(self, old_grad, grad_update, loss, init_norms,
-            z_trans_y, c1=0.1, c2=0.5):
-        """Find a step size satisfying the Wolfe conditions.
-
-        Args:
-            old_grad (ndarray): A (num_rffs) shape array with the
-                last gradient.
-            grad_update (ndarray): A (num_rffs, 2) shape array where
-                the first column is the component of the gradient due
-                to the current wvec, while the second is the component
-                due to the shift.
-            loss (float): The current loss.
-            init_norms (float): The initial loss; divide by this so losses
-                are 'scaled' for easier interpretation.
-            z_trans_y (ndarray): The product Z^T @ y; shape (num_rffs).
-            c1 (float): The c1 constant for the Wolfe conditions.
-            c2 (float): The c2 constant for the Wolfe conditions.
-
-        Returns:
-            new_grad (ndarray): A (num_rffs) shape array containing the
-                new gradient.
-            new_loss (float): The new loss value.
-            step_size (float): The selected step size.
-        """
-        step_sizes = np.logspace(1,-10,40).tolist()
-        for step_size in step_sizes:
-            s_k = grad_update[:,1]
-            new_grad = (grad_update[:,0] + grad_update[:,1] * step_size) - \
-                    z_trans_y
-            new_loss = float((new_grad**2).sum())
-            left_dot_prod = float(new_grad.T @ s_k)
-            right_dot_prod = float(old_grad.T @ s_k)
-
-            # The strong Wolfe conditions.
-            condition1 = new_loss <= loss * init_norms + c1 * step_size * right_dot_prod
-            condition2 = np.abs(left_dot_prod) <= c2 * np.abs(right_dot_prod)
-            if condition1 and condition2:
-                break
-
-        return new_grad, new_loss / init_norms, step_size
 
 
     def update_hess(self, y_k, s_k):
@@ -301,12 +252,6 @@ class lSR1:
             xprod (np.ndarray): A (num_rffs, 2) shape array, containing
                 (Z^T Z + lambda**2) @ wvec.
         """
-        if self.regularization == "l1":
-            xprod = self.lambda_**2 * self.signval(wvec).astype(self.dtype)
-            xprod += 1e-6 * wvec
-        else:
-            xprod = self.lambda_**2 * wvec
-
         xprod = self.lambda_**2 * wvec
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
@@ -316,33 +261,3 @@ class lSR1:
             if self.n_iter % 5 == 0:
                 print(f"Nfev {self.n_iter}")
         return xprod
-
-
-def calc_zty(dataset, kernel):
-    """Calculates the vector Z^T y.
-
-    Args:
-        dataset: An Dataset object that can supply
-            chunked data.
-        kernel: A valid kernel object that can generate
-            random features.
-        device (str): One of "cpu", "gpu".
-
-    Returns:
-        z_trans_y (array): A shape (num_feats)
-            array that contains Z^T y.
-        y_trans_y (float): The value y^T y.
-    """
-    if kernel.device == "gpu":
-        z_trans_y = cp.zeros((kernel.get_num_feats()))
-    else:
-        z_trans_y = np.zeros((kernel.get_num_feats()))
-
-    y_trans_y = 0
-
-    for xdata, ydata in dataset.get_chunked_data():
-        zdata = kernel.transform_x(xdata)
-        z_trans_y += zdata.T @ ydata
-        y_trans_y += float( (ydata**2).sum() )
-    return z_trans_y, y_trans_y
-

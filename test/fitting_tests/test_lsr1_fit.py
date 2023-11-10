@@ -29,7 +29,7 @@ class CheckLSR1Fit(unittest.TestCase):
         preconditioner, ratio = cpu_mod.build_preconditioner(online_data,
                     max_rank = 256)
         niter, _ = cpu_mod.fit(online_data,
-                max_iter = 500, run_diagnostics = True,
+                max_iter = 100, run_diagnostics = True,
                 mode = "lsr1", preset_hyperparams = HPARAM,
                 preconditioner = preconditioner)
         print(f"niter: {niter}")
@@ -37,9 +37,9 @@ class CheckLSR1Fit(unittest.TestCase):
 
         if gpu_mod is not None:
             preconditioner, ratio = gpu_mod.build_preconditioner(online_data,
-                    max_rank = 256)
+                    max_rank = 256, preset_hyperparams = HPARAM)
             niter, _ = gpu_mod.fit(online_data,
-                max_iter = 500, run_diagnostics = True,
+                max_iter = 50, run_diagnostics = True,
                 tol = 1e-6,  mode = "lsr1", preset_hyperparams = HPARAM,
                 preconditioner = preconditioner)
             print(f"niter: {niter}")
