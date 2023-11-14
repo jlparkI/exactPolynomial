@@ -122,7 +122,7 @@ class lBFGSModelFit:
             grad = cp.asnumpy(grad).astype(np.float64)
         if self.verbose:
             if self.n_iter % 5 == 0:
-                print(f"Nfev {self.n_iter} complete, loss {loss / y_trans_y}")
+                print(f"Nfev {self.n_iter} complete, loss {loss / y_trans_y}", flush=True)
         self.n_iter += 1
         return loss, grad
 
