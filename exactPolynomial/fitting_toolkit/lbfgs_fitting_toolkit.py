@@ -17,8 +17,6 @@ class lBFGSModelFit:
     Attributes:
         dataset: An OnlineDataset or OfflineDatset containing all the
             training data.
-        regularization (str): One of 'l1', 'l2'. Determines the type
-            of regularization that is applied.
         kernel: A kernel object that can generate random features for
             the Dataset.
         lambda_ (float): The noise hyperparameter shared across all kernels.
@@ -30,14 +28,9 @@ class lBFGSModelFit:
             depending on device.
         signval: A convenience reference to either cp.sign or np.sign.
         niter (int): The number of function evaluations performed.
-        elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
-            if 'l1' regularization is selected. This value should be small (1e-6 to
-            1e-4 is typical) and should be significantly smaller than the L1
-            penalty that has been selected, otherwise sparsity may not be achieved.
     """
 
-    def __init__(self, dataset, regularization, kernel, device, verbose,
-            elastic_l2_penalty = 1e-4):
+    def __init__(self, dataset, kernel, device, verbose):
         """Class constructor.
 
         Args:
@@ -55,10 +48,7 @@ class lBFGSModelFit:
                 1e-4 is typical) and should be significantly smaller than the L1
                 penalty that has been selected, otherwise sparsity may not be achieved.
         """
-        if regularization not in ['l1', 'l2']:
-            raise ValueError("Unrecognized regularization option supplied.")
         self.dataset = dataset
-        self.regularization = regularization
         self.kernel = kernel
         self.lambda_ = kernel.get_lambda()
         self.verbose = verbose
@@ -66,18 +56,13 @@ class lBFGSModelFit:
         if device == "gpu":
             self.zero_arr = cp.zeros
             self.dtype = cp.float64
-            self.signval = cp.sign
-            self.absval = cp.abs
         else:
             self.zero_arr = np.zeros
             self.dtype = np.float64
-            self.signval = np.sign
-            self.absval = np.abs
         self.n_iter = 0
-        self.elastic_l2_penalty = elastic_l2_penalty
 
 
-    def fit_model_lbfgs(self, max_iter = 500, tol = 3e-09):
+    def fit_model(self, max_iter = 500, tol = 3e-09):
         """Finds an optimal set of weights using the information already
         provided to the class constructor.
 
@@ -120,10 +105,7 @@ class lBFGSModelFit:
         wvec = weights
         if self.device == "gpu":
             wvec = cp.asarray(wvec).astype(self.dtype)
-        if self.regularization == "l2":
-            xprod = self.lambda_**2 * wvec
-        else:
-            xprod = self.elastic_l2_penalty * wvec
+        xprod = self.lambda_**2 * wvec
 
         for xdata in self.dataset.get_chunked_x_data():
             xtrans = self.kernel.transform_x(xdata)
@@ -132,9 +114,6 @@ class lBFGSModelFit:
         grad = 2 * xprod - 2 * z_trans_y
         loss = float(y_trans_y + (wvec.T @ xprod) - 2 * wvec.T @ z_trans_y)
 
-        if self.regularization == "l1":
-            grad += self.lambda_**2 * self.signval(wvec).astype(self.dtype)
-            loss += self.lambda_**2 * float(self.absval(wvec).sum())
 
         #We can normalize the loss because wvec initial is all zeros. Otherwise
         #that would not work.

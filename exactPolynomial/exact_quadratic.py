@@ -11,9 +11,7 @@ from .kernels import KERNEL_NAME_TO_CLASS
 from .preconditioners.inter_device_preconditioners import InterDevicePreconditioner
 
 from .fitting_toolkit.lbfgs_fitting_toolkit import lBFGSModelFit
-from .fitting_toolkit.l1_reg_lsr1_toolkit import L1_lSR1
-from .fitting_toolkit.l2_reg_lsr1_toolkit import L2_lSR1
-
+from .fitting_toolkit.ista_fitting_toolkit import ISTAFit
 
 
 class ExactQuadratic():
@@ -21,8 +19,7 @@ class ExactQuadratic():
     large dataset, using L1 or L2 regularization."""
 
     def __init__(self, device = "cpu", verbose = True,
-                    regularization = "l2", num_threads = 2,
-                    elastic_l2_penalty = 1e-6):
+                    regularization = "l2", num_threads = 2):
         """Class constructor.
 
         Args:
@@ -39,10 +36,6 @@ class ExactQuadratic():
                 quickly.
             num_threads (int): The number of threads to use for random feature generation
                 if running on CPU. If running on GPU, this argument is ignored.
-            elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
-                if 'l1' regularization is selected. This value should be small (1e-6 to
-                1e-4 is typical) and should be significantly smaller than the L1
-                penalty that has been selected, otherwise sparsity may not be achieved.
         """
         if regularization not in ['l1', 'l2']:
             raise ValueError("Unrecognized regularization option supplied.")
@@ -56,17 +49,15 @@ class ExactQuadratic():
         self.verbose = verbose
         self.trainy_mean = 0.0
         self.trainy_std = 1.0
-        self.elastic_l2_penalty = elastic_l2_penalty
 
 
-    def initialize(self, dataset, random_seed = 123, hyperparams = None, input_bounds = None):
+    def initialize(self, dataset, hyperparams = None, input_bounds = None):
         """Initializes the kernel using the supplied dataset and random seed.
         If the kernel has already been initialized, no further action is
         taken.
 
         Args:
             dataset: An Online or Offline dataset for training.
-            random_seed (int): A random seed to set up the kernel.
             hyperparams (ndarray): Either None or a numpy array. If not None,
                 must be a numpy array such that shape[0] == the number of hyperparameters
                 for the selected kernel. The kernel hyperparameters are then initialized
@@ -80,7 +71,7 @@ class ExactQuadratic():
             ValueError: A ValueError is raised if invalid inputs are supplied.
         """
         self.kernel = self._initialize_kernel("ExactQuadratic", dataset.get_xdim(),
-                        random_seed, input_bounds)
+                    input_bounds)
         self.weights = None
         if hyperparams is not None:
             self.kernel.check_hyperparams(hyperparams)
@@ -128,7 +119,7 @@ class ExactQuadratic():
 
 
     def _initialize_kernel(self, kernel_choice, input_dims,
-                        random_seed, bounds = None):
+                        bounds = None):
         """Selects and initializes an appropriate kernel object based on the
         kernel_choice string supplied by caller. The kernel is then moved to
         the appropriate device based on the 'device' supplied by caller
@@ -141,8 +132,6 @@ class ExactQuadratic():
                 [ndatapoints, x.shape[1]] for non-convolution data
                 or [ndatapoints, x.shape[1], x.shape[2]] for conv1d
                 data.
-            random_seed (int): The random seed to the random number
-                generator the kernel uses to initialize.
             bounds (np.ndarray): The bounds on hyperparameter
                 tuning. Must have an appropriate shape for the
                 selected kernel. If None, the kernel will use
@@ -256,10 +245,12 @@ class ExactQuadratic():
                 This value has decent predictive value for assessing how
                 well the preconditioner is likely to perform.
         """
+        if self.regularization == "l1":
+            raise ValueError("No preconditioner construction for l1 regularization "
+                    "is implemented at this time.")
         self._run_pre_fitting_prep(dataset, preset_hyperparams)
         preconditioner = InterDevicePreconditioner(self.kernel, dataset, max_rank,
-                self.verbose, random_state, method, self.regularization,
-                self.elastic_l2_penalty)
+                self.verbose, random_state, method, self.regularization)
         self._run_post_fitting_cleanup(dataset)
         return preconditioner, preconditioner.achieved_ratio
 
@@ -281,16 +272,10 @@ class ExactQuadratic():
                 If supplied, must be a numpy array of shape (N, 2) where
                 N is the number of hyperparams for the kernel in question.
             max_iter (int): The maximum number of epochs for iterative strategies.
-            random_seed (int): The random seed for the random number generator.
             run_diagnostics (bool): If True, the number of conjugate
                 gradients and the preconditioner diagnostics ratio are returned.
-            mode (str): Must be one of "cg", "lbfgs", "exact".
-                Determines the approach used. If 'exact', self.kernel.get_num_feats
-                must be <= constants.constants.MAX_CLOSED_FORM_RFFS.
-            suppress_var (bool): If True, do not calculate variance. This is generally only
-                useful when optimizing hyperparameters, since otherwise we want to calculate
-                the variance. It is best to leave this as default False unless performing
-                hyperparameter optimization.
+            mode (str): Must be one of "ista", "lbfgs", "exact".
+                Determines the approach used.
             preconditioner: Either None or a valid preconditioner object.
 
         Returns:
@@ -308,16 +293,15 @@ class ExactQuadratic():
         if self.verbose:
             print("starting fitting")
         if mode == "lbfgs":
-            model_fitter = lBFGSModelFit(dataset, self.regularization, self.kernel,
-                    self.device, self.verbose, elastic_l2_penalty = self.elastic_l2_penalty)
-            self.weights, n_iter, losses = model_fitter.fit_model_lbfgs(max_iter, tol=tol)
-        elif mode == "lsr1":
             if self.regularization == "l1":
-                model_fitter = L1_lSR1(dataset, self.kernel, self.device, self.verbose,
-                        preconditioner, elastic_l2_penalty = self.elastic_l2_penalty)
-            else:
-                model_fitter = L2_lSR1(dataset, self.kernel, self.device, self.verbose,
-                        preconditioner)
+                raise ValueError("LBFGS is only suitable for l1 regularization.")
+            model_fitter = lBFGSModelFit(dataset, self.kernel, self.device, self.verbose)
+            self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
+
+        elif mode == "ista":
+            if self.regularization == "l2":
+                raise ValueError("ISTA is only suitable for l2 regularization.")
+            model_fitter = ISTAFit(dataset, self.kernel, self.device, self.verbose)
             self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
 
         else:
