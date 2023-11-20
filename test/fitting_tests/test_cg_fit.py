@@ -1,4 +1,4 @@
-"""Tests ISTA fitting."""
+"""Tests CG fitting."""
 import sys
 import unittest
 
@@ -12,30 +12,37 @@ from utils.evaluate_model import evaluate_model
 
 #A set of hyperparameters known to work well for our testing dataset
 #that we can use as a default.
-HPARAM = np.array([1])
+HPARAM = np.array([-1.378])
+
+RANDOM_SEED = 123
 
 
+class CheckCGFit(unittest.TestCase):
+    """Tests CG fitting."""
 
-class CheckISTAFit(unittest.TestCase):
-    """Tests ISTA fitting."""
-
-    def test_ista(self):
-        """Test using ISTA, which should easily fit in under
+    def test_cg(self):
+        """Test using preconditioned CG, which should easily fit in under
         150 epochs."""
         online_data, _ = build_test_dataset()
-        cpu_mod, gpu_mod = get_models(online_data, regularization = "l1")
+        cpu_mod, gpu_mod = get_models(online_data)
+
+        preconditioner, _ = cpu_mod.build_preconditioner(online_data,
+                max_rank = 256, preset_hyperparams = HPARAM)
 
         niter, _ = cpu_mod.fit(online_data,
                 max_iter = 500, run_diagnostics = True,
-                mode = "ista", preset_hyperparams = HPARAM,
-                tol = 1e-2)
+                mode = "cg", preset_hyperparams = HPARAM,
+                tol = 1e-5, preconditioner = preconditioner)
         print(f"niter: {niter}")
         self.assertTrue(niter < 150)
 
         if gpu_mod is not None:
+            preconditioner, _ = gpu_mod.build_preconditioner(online_data,
+                max_rank = 256, preset_hyperparams = HPARAM)
             niter, _ = gpu_mod.fit(online_data,
                 max_iter = 500, run_diagnostics = True,
-                tol = 1e-2,  mode = "ista", preset_hyperparams = HPARAM)
+                tol = 1e-5,  mode = "cg", preconditioner = preconditioner,
+                preset_hyperparams = HPARAM)
             print(f"niter: {niter}")
             self.assertTrue(niter < 150)
 

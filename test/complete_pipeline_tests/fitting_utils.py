@@ -12,7 +12,7 @@ from utils.evaluate_model import evaluate_model
 
 
 
-def test_fit(device = "gpu", regularization = "l1"):
+def test_fit(device = "gpu", regularization = "l2"):
     """Test on a specified device using preconditioned CG and exact."""
     _, train_dataset = build_test_dataset()
     cpu_mod, gpu_mod = get_models(train_dataset, regularization = regularization)
@@ -33,13 +33,13 @@ def test_fit(device = "gpu", regularization = "l1"):
     hparams = np.array([-0.687])
 
     if regularization == "l2":
-        preconditioner, ratio = model.build_preconditioner(train_dataset, max_rank = 256,
+        preconditioner, _ = model.build_preconditioner(train_dataset, max_rank = 256,
             preset_hyperparams = hparams)
+        model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 2000,
+            mode = "cg", tol=1e-6, preconditioner = preconditioner)
     else:
-        preconditioner = None
-
-    model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 1000,
-            mode = "ista", tol=1e-3, preconditioner = preconditioner)
+        model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 2000,
+            mode = "ista", tol=4e-4, preconditioner = None)
     score = evaluate_model(model, train_dataset, test_dataset)
 
     print(f"Test set score, {score}")
