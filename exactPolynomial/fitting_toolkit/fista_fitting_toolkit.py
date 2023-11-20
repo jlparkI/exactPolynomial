@@ -1,4 +1,4 @@
-"""Contains the tools needed to fit using the ISTA algorithm."""
+"""Contains the tools needed to fit using the FISTA algorithm."""
 import numpy as np
 try:
     import cupy as cp
@@ -11,9 +11,9 @@ from .numpy_kernel_linop import CPUDatasetLinop
 
 
 
-class ISTAFit:
+class FISTAFit:
     """This class contains all the tools needed to fit a model
-    whose hyperparameters have already been tuned using ISTA.
+    whose hyperparameters have already been tuned using FISTA.
 
     Attributes:
         dataset: An OnlineDataset or OfflineDatset containing all the
@@ -81,17 +81,21 @@ class ISTAFit:
                 best set of weights found. A 1d array of length self.kernel.get_num_feats().
         """
         self.n_iter = 0
-        wvec = self.zero_arr((self.kernel.get_num_feats()))
+        x_k = self.zero_arr((self.kernel.get_num_feats()))
+        y_k = x_k.copy()
+        t_k = 1
 
         while self.n_iter < max_iter:
-            wvec_update = self.full_dataset_pass(wvec)
-            new_wvec = self.soft_thresh(wvec - wvec_update)
+            old_y, old_x = y_k.copy(), x_k.copy()
+            x_k = self.soft_thresh(y_k - self.full_dataset_pass(y_k))
 
-            wvec_shift = new_wvec - wvec
+            t_k_1 = (1. + np.sqrt(1. + 4. * t_k**2)) / 2.
+            y_k = x_k + ((t_k - 1.) / t_k_1) * (x_k - old_x)
+            t_k = t_k_1
+
+            wvec_shift = x_k - old_x
             wvec_shift = np.sqrt(float(wvec_shift.T @ wvec_shift))
-            wvec_shift /= np.sqrt(float((new_wvec.T @ new_wvec).clip(min=1e-12)))
-
-            wvec = new_wvec
+            wvec_shift /= np.sqrt(float(x_k.T @ x_k))
 
             if wvec_shift < tol:
                 break
@@ -100,8 +104,8 @@ class ISTAFit:
             self.n_iter += 1
 
         if self.device == "gpu":
-            wvec = cp.asarray(wvec)
-        return wvec, self.n_iter, []
+            x_k = cp.asarray(x_k)
+        return x_k, self.n_iter, []
 
 
     def cuda_soft_thresh(self, wvec):

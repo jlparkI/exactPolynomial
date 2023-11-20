@@ -38,8 +38,8 @@ def test_fit(device = "gpu", regularization = "l1"):
     else:
         preconditioner = None
 
-    model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 1000,
-            mode = "ista", tol=1e-3, preconditioner = preconditioner)
+    model.fit(train_dataset, preset_hyperparams = hparams, max_iter = 2000,
+            mode = "ista", tol=4e-4, preconditioner = preconditioner)
     score = evaluate_model(model, train_dataset, test_dataset)
 
     print(f"Test set score, {score}")

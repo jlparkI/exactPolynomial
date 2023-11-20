@@ -4,14 +4,18 @@ quadratic to a (potentially) large dataset.
 import sys
 try:
     import cupy as cp
+    from .preconditioners.cuda_rand_nys_preconditioners import Cuda_RandNysPreconditioner
 except:
     print("CuPy not detected. xGPR will run in CPU-only mode.")
 import numpy as np
 from .kernels import KERNEL_NAME_TO_CLASS
-from .preconditioners.inter_device_preconditioners import InterDevicePreconditioner
+from .preconditioners.rand_nys_preconditioners import CPU_RandNysPreconditioner
 
 from .fitting_toolkit.lbfgs_fitting_toolkit import lBFGSModelFit
 from .fitting_toolkit.ista_fitting_toolkit import ISTAFit
+from .fitting_toolkit.fista_fitting_toolkit import FISTAFit
+from .fitting_toolkit.cg_fitting_toolkit import cg_fit_lib_ext
+
 
 
 class ExactQuadratic():
@@ -249,8 +253,14 @@ class ExactQuadratic():
             raise ValueError("No preconditioner construction for l1 regularization "
                     "is implemented at this time.")
         self._run_pre_fitting_prep(dataset, preset_hyperparams)
-        preconditioner = InterDevicePreconditioner(self.kernel, dataset, max_rank,
-                self.verbose, random_state, method, self.regularization)
+        if self.device == "gpu":
+            preconditioner = Cuda_RandNysPreconditioner(self.kernel, dataset, max_rank,
+                        self.verbose, random_state, method)
+            mempool = cp.get_default_memory_pool()
+            mempool.free_all_blocks()
+        else:
+            preconditioner = CPU_RandNysPreconditioner(self.kernel, dataset, max_rank,
+                        self.verbose, random_state, method)
         self._run_post_fitting_cleanup(dataset)
         return preconditioner, preconditioner.achieved_ratio
 
@@ -292,16 +302,28 @@ class ExactQuadratic():
 
         if self.verbose:
             print("starting fitting")
-        if mode == "lbfgs":
+
+        if mode == "cg":
             if self.regularization == "l1":
-                raise ValueError("LBFGS is only suitable for l1 regularization.")
+                raise ValueError("CG is only suitable for l2 regularization.")
+            self.weights, n_iter, losses = cg_fit_lib_ext(self.kernel, dataset, tol,
+                    max_iter, preconditioner, self.verbose)
+
+        elif mode == "lbfgs":
+            if self.regularization == "l1":
+                raise ValueError("LBFGS is only suitable for l2 regularization.")
             model_fitter = lBFGSModelFit(dataset, self.kernel, self.device, self.verbose)
             self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
 
         elif mode == "ista":
             if self.regularization == "l2":
-                raise ValueError("ISTA is only suitable for l2 regularization.")
+                raise ValueError("ISTA is only suitable for l1 regularization.")
             model_fitter = ISTAFit(dataset, self.kernel, self.device, self.verbose)
+            self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
+        elif mode == "fista":
+            if self.regularization == "l2":
+                raise ValueError("FISTA is only suitable for l2 regularization.")
+            model_fitter = FISTAFit(dataset, self.kernel, self.device, self.verbose)
             self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
 
         else:

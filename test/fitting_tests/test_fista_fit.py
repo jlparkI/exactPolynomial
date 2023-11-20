@@ -1,4 +1,4 @@
-"""Tests ISTA fitting."""
+"""Tests FISTA fitting."""
 import sys
 import unittest
 
@@ -12,22 +12,22 @@ from utils.evaluate_model import evaluate_model
 
 #A set of hyperparameters known to work well for our testing dataset
 #that we can use as a default.
-HPARAM = np.array([1])
+HPARAM = np.array([-1.378])
 
 
 
-class CheckISTAFit(unittest.TestCase):
-    """Tests ISTA fitting."""
+class CheckFISTAFit(unittest.TestCase):
+    """Tests FISTA fitting."""
 
-    def test_ista(self):
-        """Test using ISTA, which should easily fit in under
+    def test_fista(self):
+        """Test using FISTA, which should easily fit in under
         150 epochs."""
         online_data, _ = build_test_dataset()
         cpu_mod, gpu_mod = get_models(online_data, regularization = "l1")
 
         niter, _ = cpu_mod.fit(online_data,
                 max_iter = 500, run_diagnostics = True,
-                mode = "ista", preset_hyperparams = HPARAM,
+                mode = "fista", preset_hyperparams = HPARAM,
                 tol = 1e-2)
         print(f"niter: {niter}")
         self.assertTrue(niter < 150)
@@ -35,7 +35,7 @@ class CheckISTAFit(unittest.TestCase):
         if gpu_mod is not None:
             niter, _ = gpu_mod.fit(online_data,
                 max_iter = 500, run_diagnostics = True,
-                tol = 1e-2,  mode = "ista", preset_hyperparams = HPARAM)
+                tol = 1e-2,  mode = "fista", preset_hyperparams = HPARAM)
             print(f"niter: {niter}")
             self.assertTrue(niter < 150)
 
