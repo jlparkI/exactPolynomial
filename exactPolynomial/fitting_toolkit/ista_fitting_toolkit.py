@@ -99,7 +99,7 @@ class ISTAFit:
             if wvec_shift < tol:
                 break
             if self.n_iter % 5 == 0:
-                print(f"Iteration {self.n_iter}, wvec shift {wvec_shift}")
+                print(f"Iteration {self.n_iter}, wvec shift {wvec_shift}", flush=True)
             self.n_iter += 1
 
         if self.device == "gpu":
