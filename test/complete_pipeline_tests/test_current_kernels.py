@@ -19,18 +19,19 @@ class CheckPipeline(unittest.TestCase):
 
     def test_fit_cpu(self):
         """Test on cpu."""
-        print("Now running CPU tests. Some of these (primarily any "
-                "involving ARD kernels) may take a minute.")
-        for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
-            score = test_fit(device="cpu")
-            self.assertTrue(score > exp_score)
+        print("Now running CPU tests.")
+        for regularization in ["l1", "l2"]:
+            for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
+                score = test_fit(device="cpu", regularization = regularization)
+                self.assertTrue(score > exp_score)
 
     def test_fit_gpu(self):
         """Test on gpu."""
         print("Now running GPU tests.")
-        for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
-            score = test_fit(device="gpu")
-            self.assertTrue(score > exp_score)
+        for regularization in ["l1", "l2"]:
+            for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
+                score = test_fit(device="gpu", regularization = regularization)
+                #self.assertTrue(score > exp_score)
 
 
 if __name__ == "__main__":

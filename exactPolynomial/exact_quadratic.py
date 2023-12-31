@@ -310,10 +310,9 @@ class ExactQuadratic():
                     max_iter, preconditioner, self.verbose)
 
         elif mode == "lbfgs":
-            if self.regularization == "l1":
-                raise ValueError("LBFGS is only suitable for l2 regularization.")
             model_fitter = lBFGSModelFit(dataset, self.kernel, self.device, self.verbose)
-            self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol)
+            self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol,
+                                regularization = self.regularization)
 
         elif mode == "ista":
             if self.regularization == "l2":

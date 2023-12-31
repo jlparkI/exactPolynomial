@@ -28,9 +28,13 @@ class lBFGSModelFit:
             depending on device.
         signval: A convenience reference to either cp.sign or np.sign.
         niter (int): The number of function evaluations performed.
+        eps (float): A small value added to the square of each weight
+            if using l1 regularization; this approximation to the l1
+            penalty ensures it is differentiable. The default is usually
+            fine.
     """
 
-    def __init__(self, dataset, kernel, device, verbose):
+    def __init__(self, dataset, kernel, device, verbose, eps = 1e-6):
         """Class constructor.
 
         Args:
@@ -43,10 +47,10 @@ class lBFGSModelFit:
             device (str): One of 'cpu', 'gpu'. Indicates where calculations
                 will be performed.
             verbose (bool): If True, print regular updates.
-            elastic_l2_penalty (float): The L2 penalty used in conjunction with the L1
-                if 'l1' regularization is selected. This value should be small (1e-6 to
-                1e-4 is typical) and should be significantly smaller than the L1
-                penalty that has been selected, otherwise sparsity may not be achieved.
+            eps (float): A small value added to the square of each weight
+                if using l1 regularization; this approximation to the l1
+                penalty ensures it is differentiable. The default is usually
+                fine.
         """
         self.dataset = dataset
         self.kernel = kernel
@@ -60,28 +64,38 @@ class lBFGSModelFit:
             self.zero_arr = np.zeros
             self.dtype = np.float64
         self.n_iter = 0
+        self.eps = eps
 
 
-    def fit_model(self, max_iter = 500, tol = 3e-09):
+    def fit_model(self, max_iter = 500, tol = 3e-09, regularization = "l2"):
         """Finds an optimal set of weights using the information already
         provided to the class constructor.
 
         Args:
             max_iter (int): The maximum number of iterations for L_BFGS.
             tol (float): The threshold for convergence.
+            regularization (str): One of 'l1', 'l2'.
 
         Returns:
             wvec: A cupy or numpy array depending on device that contains the
                 best set of weights found. A 1d array of length self.kernel.get_num_feats().
         """
-        z_trans_y, y_trans_y = calc_zty(self.dataset, self.kernel)
         init_weights = np.zeros((self.kernel.get_num_feats()))
-        res = minimize(self.cost_fun, options={"maxiter":max_iter, "ftol":tol},
+        z_trans_y, y_trans_y = calc_zty(self.dataset, self.kernel)
+
+        if regularization == 'l2':
+            res = minimize(self.cost_fun, options={"maxiter":max_iter, "ftol":tol},
                     method = "L-BFGS-B",
                     x0 = init_weights, args = (z_trans_y, y_trans_y),
                     jac = True, bounds = None)
+            wvec = res.x
+        else:
+            res = minimize(self.l1_cost_fun, options={"maxiter":max_iter, "ftol":tol},
+                    method = "L-BFGS-B", args = (z_trans_y,),
+                    x0 = init_weights, jac = True, bounds = None)
+            wvec = res.x
+            wvec[np.abs(wvec) < self.eps] = 0.
 
-        wvec = res.x
         if self.device == "gpu":
             wvec = cp.asarray(wvec)
         return wvec, self.n_iter, []
@@ -115,16 +129,56 @@ class lBFGSModelFit:
         loss = float(y_trans_y + (wvec.T @ xprod) - 2 * wvec.T @ z_trans_y)
 
 
-        #We can normalize the loss because wvec initial is all zeros. Otherwise
-        #that would not work.
+        if self.device == "gpu":
+            grad = cp.asnumpy(grad).astype(np.float64)
+        if self.verbose:
+            if self.n_iter % 5 == 0:
+                print(f"Nfev {self.n_iter} complete, loss {loss}", flush=True)
+        self.n_iter += 1
+        return loss, grad
+
+
+
+    def l1_cost_fun(self, weights, z_trans_y):
+        """The cost function for finding the weights using
+        L-BFGS when using l1 regularization. The l1 penalty
+        is approximated to make it differentiable.
+        Returns both the current loss and the gradient.
+
+        Args:
+            weights (np.ndarray): The current set of weights.
+            z_trans_y: A cupy or numpy array (depending on device)
+                containing Z.T @ y, where Z is the random features
+                generated for all of the training datapoints.
+
+        Returns:
+            loss (float): The current loss.
+            grad (np.ndarray): The gradient for the current set of weights.
+        """
+        wvec = weights
+        if self.device == "gpu":
+            wvec = cp.asarray(wvec).astype(self.dtype)
+            loss = (cp.sqrt(wvec**2 + self.eps) * self.lambda_**2).sum()
+            grad = -2 * z_trans_y + self.lambda_**2 * wvec / cp.sqrt(wvec**2 + self.eps)
+        else:
+            loss = (np.sqrt(wvec**2 + self.eps) * self.lambda_**2).sum()
+            grad = -2 * z_trans_y + self.lambda_**2 * wvec / np.sqrt(wvec**2 + self.eps)
+
+        for xdata, ydata in self.dataset.get_chunked_data():
+            xtrans = self.kernel.transform_x(xdata)
+            loss += ((ydata - xtrans @ wvec)**2).sum()
+            grad += 2 * (xtrans.T @ (xtrans @ wvec))
+
+        loss = float(loss)
 
         if self.device == "gpu":
             grad = cp.asnumpy(grad).astype(np.float64)
         if self.verbose:
             if self.n_iter % 5 == 0:
-                print(f"Nfev {self.n_iter} complete, loss {loss / y_trans_y}", flush=True)
+                print(f"Nfev {self.n_iter} complete, loss {loss}", flush=True)
         self.n_iter += 1
         return loss, grad
+
 
 
 def calc_zty(dataset, kernel):
