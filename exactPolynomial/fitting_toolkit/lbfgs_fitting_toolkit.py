@@ -34,7 +34,7 @@ class lBFGSModelFit:
             fine.
     """
 
-    def __init__(self, dataset, kernel, device, verbose, eps = 1e-6):
+    def __init__(self, dataset, kernel, device, verbose, eps = 1e-8):
         """Class constructor.
 
         Args:
@@ -67,7 +67,7 @@ class lBFGSModelFit:
         self.eps = eps
 
 
-    def fit_model(self, max_iter = 500, tol = 3e-09, regularization = "l2"):
+    def fit_model(self, max_iter = 500, tol = 3e-09, regularization = "l2", hard_thresh = 1e-6):
         """Finds an optimal set of weights using the information already
         provided to the class constructor.
 
@@ -75,6 +75,8 @@ class lBFGSModelFit:
             max_iter (int): The maximum number of iterations for L_BFGS.
             tol (float): The threshold for convergence.
             regularization (str): One of 'l1', 'l2'.
+            hard_thresh (float): The value below which weights are set to zero when using l1
+                regularization at the end of fitting.
 
         Returns:
             wvec: A cupy or numpy array depending on device that contains the
@@ -94,7 +96,7 @@ class lBFGSModelFit:
                     method = "L-BFGS-B", args = (z_trans_y,),
                     x0 = init_weights, jac = True, bounds = None)
             wvec = res.x
-            wvec[np.abs(wvec) < self.eps] = 0.
+            wvec[np.abs(wvec) < hard_thresh] = 0.
 
         if self.device == "gpu":
             wvec = cp.asarray(wvec)

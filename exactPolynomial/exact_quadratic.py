@@ -267,7 +267,7 @@ class ExactQuadratic():
 
     def fit(self, dataset, tol = 1e-5, preset_hyperparams=None,
             max_iter = 500, run_diagnostics = False, mode = "lbfgs",
-            preconditioner = None):
+            preconditioner = None, hard_thresh = 1e-6, eps = 1e-8):
         """Fits the model after checking that the input data
         is consistent with the kernel choice and other user selections.
 
@@ -287,6 +287,13 @@ class ExactQuadratic():
             mode (str): Must be one of "ista", "lbfgs", "exact".
                 Determines the approach used.
             preconditioner: Either None or a valid preconditioner object.
+            hard_thresh (float): The value below which weights are set to zero
+                when using l1 regularization with lbfgs fitting. This is necessary
+                because for l1 regularization l-bfgs approximates the l1 penalty
+                so very small weight values are not necessarily pushed to zero as
+                with ISTA.
+            eps (float): The epsilon parameter for the l1 penalty approximation for l-bfgs.
+                Smaller values result in a better approximation but more expensive fitting.
 
         Returns:
             Does not return anything unless run_diagnostics is True.
@@ -310,9 +317,9 @@ class ExactQuadratic():
                     max_iter, preconditioner, self.verbose)
 
         elif mode == "lbfgs":
-            model_fitter = lBFGSModelFit(dataset, self.kernel, self.device, self.verbose)
+            model_fitter = lBFGSModelFit(dataset, self.kernel, self.device, self.verbose, eps = eps)
             self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol,
-                                regularization = self.regularization)
+                                regularization = self.regularization, hard_thresh = hard_thres)
 
         elif mode == "ista":
             if self.regularization == "l2":
