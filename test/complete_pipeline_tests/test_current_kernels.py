@@ -21,17 +21,21 @@ class CheckPipeline(unittest.TestCase):
         """Test on cpu."""
         print("Now running CPU tests.")
         for regularization in ["l1", "l2"]:
-            for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
-                score = test_fit(device="cpu", regularization = regularization)
-                self.assertTrue(score > exp_score)
+            for interaction in [True, False]:
+                for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
+                    score = test_fit(device="cpu", regularization = regularization,
+                            interactions_only = interaction)
+                    self.assertTrue(score > exp_score)
 
     def test_fit_gpu(self):
         """Test on gpu."""
         print("Now running GPU tests.")
         for regularization in ["l1", "l2"]:
-            for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
-                score = test_fit(device="gpu", regularization = regularization)
-                #self.assertTrue(score > exp_score)
+            for interaction in [True, False]:
+                for kernel_name, (is_conv, exp_score) in IMPLEMENTED_KERNELS.items():
+                    score = test_fit(device="gpu", regularization = regularization,
+                            interactions_only = interaction)
+                    self.assertTrue(score > exp_score)
 
 
 if __name__ == "__main__":

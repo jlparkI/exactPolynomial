@@ -11,5 +11,12 @@ template <typename T>
 void *ThreadExactQuadratic(T inArray[], double *outArray, int startPosition,
         int endPosition, int inDim0, int inDim1);
 
+template <typename T>
+const char *cpuInteractionsOnly_(T inArray[], double *outArray,
+                int inDim0, int inDim1, int numThreads);
+
+template <typename T>
+void *ThreadInteractionsOnly(T inArray[], double *outArray, int startPosition,
+        int endPosition, int inDim0, int inDim1);
 
 #endif

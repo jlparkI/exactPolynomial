@@ -7,10 +7,11 @@ from exactPolynomial import ExactQuadratic as ExactQuad
 
 
 
-def get_models(dataset, regularization = "l2"):
+def get_models(dataset, regularization = "l2", interactions_only = False):
     """Generates a CPU model and a GPU model with generic
     kernel settings."""
-    cpu_mod = ExactQuad(device = "cpu", regularization = regularization)
+    cpu_mod = ExactQuad(device = "cpu", regularization = regularization,
+            interactions_only = interactions_only)
 
     if "cupy" not in sys.modules:
         print("Cupy not installed -- skipping the CUDA test.")
