@@ -6,4 +6,8 @@ template <typename T>
 const char *cudaExactQuadratic_(T inArray[], double *outArray, 
                     int inDim0, int inDim1);
 
+template <typename T>
+const char *cudaInteractionsOnly_(T inArray[], double *outArray, 
+                    int inDim0, int inDim1);
+
 #endif

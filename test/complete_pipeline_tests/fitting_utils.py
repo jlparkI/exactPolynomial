@@ -12,10 +12,11 @@ from utils.evaluate_model import evaluate_model
 
 
 
-def test_fit(device = "gpu", regularization = "l2"):
+def test_fit(device = "gpu", regularization = "l2", interactions_only = False):
     """Test on a specified device using preconditioned CG and exact."""
     train_dataset, _ = build_test_dataset()
-    cpu_mod, gpu_mod = get_models(train_dataset, regularization = regularization)
+    cpu_mod, gpu_mod = get_models(train_dataset, regularization = regularization,
+            interactions_only = interactions_only)
     if device == "gpu":
         if gpu_mod is None:
             #If GPU not available, return immediately.
@@ -42,6 +43,6 @@ def test_fit(device = "gpu", regularization = "l2"):
             mode = "lbfgs", tol=1e-6, preconditioner = None)
     score = evaluate_model(model, train_dataset, test_dataset)
 
-    print(f"Test set score, {score}")
+    print(f"{regularization}, interactions {interactions_only}, Test set score, {score}")
 
     return score

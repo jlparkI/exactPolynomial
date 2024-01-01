@@ -4,12 +4,12 @@ features in the input vector is large -- even 600 is on
 the large side."""
 import numpy as np
 try:
-    from cuda_poly_feats import cudaExactQuadratic
+    from cuda_poly_feats import cudaExactQuadratic, cudaInteractionsOnly
 except:
     pass
 
 from .kernel_baseclass import KernelBaseclass
-from cpu_poly_feats import cpuExactQuadratic
+from cpu_poly_feats import cpuExactQuadratic, cpuInteractionsOnly
 
 
 class ExactQuadratic(KernelBaseclass):
@@ -21,9 +21,10 @@ class ExactQuadratic(KernelBaseclass):
             hyperparameter: lambda_ (noise).
         poly_func: A reference to the Cython-wrapped C function
             that will be used for feature generation.
+        interactions_only (bool): If True, all x**2 features are omitted.
     """
 
-    def __init__(self, xdim, device = "cpu", num_threads = 2):
+    def __init__(self, xdim, device = "cpu", num_threads = 2, interactions_only = False):
         """Constructor.
 
         Args:
@@ -34,8 +35,12 @@ class ExactQuadratic(KernelBaseclass):
             device (str): One of 'cpu', 'gpu'. Indicates the starting device.
             num_threads (int): The number of threads to use if running on CPU. If
                 running on GPU, this is ignored.
+            interactions_only (bool): If True, all x**2 features are omitted.
         """
-        actual_num_feats = 1 + xdim[1] * 2 + int((xdim[1] * (xdim[1] - 1)) / 2)
+        if interactions_only:
+            actual_num_feats = 1 + xdim[1] + int((xdim[1] * (xdim[1] - 1)) / 2)
+        else:
+            actual_num_feats = 1 + xdim[1] * 2 + int((xdim[1] * (xdim[1] - 1)) / 2)
 
         super().__init__(actual_num_feats, xdim, num_threads)
 
@@ -43,17 +48,23 @@ class ExactQuadratic(KernelBaseclass):
         self.bounds = np.asarray([[1e-3,1e1]])
 
         self.poly_func = None
+        self.interactions_only = interactions_only
         self.device = device
-
 
 
     def kernel_specific_set_device(self, new_device):
         """Called when device is changed. Moves
         some of the object parameters to the appropriate device."""
         if new_device == "gpu":
-            self.poly_func = cudaExactQuadratic
+            if self.interactions_only:
+                self.poly_func = cudaInteractionsOnly
+            else:
+                self.poly_func = cudaExactQuadratic
         else:
-            self.poly_func = cpuExactQuadratic
+            if self.interactions_only:
+                self.poly_func = cpuInteractionsOnly
+            else:
+                self.poly_func = cpuExactQuadratic
 
 
 

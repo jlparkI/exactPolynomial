@@ -23,7 +23,8 @@ class ExactQuadratic():
     large dataset, using L1 or L2 regularization."""
 
     def __init__(self, device = "cpu", verbose = True,
-                    regularization = "l2", num_threads = 2):
+                    regularization = "l2", interactions_only = False,
+                    num_threads = 2):
         """Class constructor.
 
         Args:
@@ -38,6 +39,7 @@ class ExactQuadratic():
                 uses ElasticNet with a very small l2 term (1e-6); this ensures
                 the problem is strongly convex and improves our ability to fit
                 quickly.
+            interactions_only (bool): If True, all x**2 features are omitted.
             num_threads (int): The number of threads to use for random feature generation
                 if running on CPU. If running on GPU, this argument is ignored.
         """
@@ -47,6 +49,7 @@ class ExactQuadratic():
         self.weights = None
         self.device = device
         self.regularization = regularization
+        self.interactions_only = interactions_only
 
         self.num_threads = num_threads
 
@@ -151,7 +154,7 @@ class ExactQuadratic():
         if kernel_choice not in KERNEL_NAME_TO_CLASS:
             raise ValueError("An unrecognized kernel choice was supplied.")
         kernel = KERNEL_NAME_TO_CLASS[kernel_choice](input_dims,
-                            self.device, self.num_threads)
+                            self.device, self.num_threads, self.interactions_only)
         if bounds is not None:
             kernel.set_bounds(bounds)
         return kernel
