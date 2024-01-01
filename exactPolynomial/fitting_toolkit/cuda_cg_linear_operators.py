@@ -51,7 +51,7 @@ class Cuda_CGLinearOperator(cpx_LinearOperator):
             xprod (cp.ndarray): the matvec product.
         """
         if self.verbose and self.n_iter % 5 == 0:
-            print(f"Iteration {self.n_iter}")
+            print(f"Iteration {self.n_iter}", flush=True)
         self.n_iter += 1
         xprod = self.kernel.get_lambda()**2 * x
         for xdata in self.dataset.get_chunked_x_data():
