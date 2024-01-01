@@ -319,7 +319,7 @@ class ExactQuadratic():
         elif mode == "lbfgs":
             model_fitter = lBFGSModelFit(dataset, self.kernel, self.device, self.verbose, eps = eps)
             self.weights, n_iter, losses = model_fitter.fit_model(max_iter, tol=tol,
-                                regularization = self.regularization, hard_thresh = hard_thres)
+                                regularization = self.regularization, hard_thresh = hard_thresh)
 
         elif mode == "ista":
             if self.regularization == "l2":
